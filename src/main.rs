@@ -133,7 +133,7 @@ fn main() {
         .output().expect("failed to exec git diff");
         let (index_map_from_orig, index_map_from_edit) = calc_index_map(diff_output.stdout);
 
-        let line_idx_re = Regex::new(&format!(r"^({}:)(\d+)(:)", &name)).unwrap();
+        let line_idx_re = Regex::new(&format!(r"^({}:)(\d+)(:)", &name.replace("/", r"[\\/]"))).unwrap();
         let replaced_orig_mypy_string = orig_mypy_lines
             .filter(|&line| line_idx_re.is_match(line))
             .map(|line| line_idx_re.replace(line, |caps: &Captures| {
