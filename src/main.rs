@@ -1,5 +1,5 @@
 use std::process::Command;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use tempfile::NamedTempFile;
 use std::io::Write;
 use std::io;
@@ -32,7 +32,7 @@ fn write_file_from_git(handle: &mut NamedTempFile, ref_name: &str, file_name: &s
 }
 
 /// get int -> int map, which projects line index of original file to edited file
-fn calc_index_map(diff_output: Vec<u8>) -> HashMap<usize, usize>{
+fn calc_index_map(diff_output: Vec<u8>) -> (BTreeMap<usize, usize>, BTreeMap<usize, usize>){
     let diff_string = String::from_utf8(diff_output).unwrap();
     let diff_splitted = diff_string.split("\n")
         .skip_while(|&line| !line.starts_with("@@"))
@@ -43,13 +43,16 @@ fn calc_index_map(diff_output: Vec<u8>) -> HashMap<usize, usize>{
         .enumerate()
         .filter(|(_, line)| !line.starts_with("-"))
         .map(|(idx, _)| idx + 1);
-    let unchanged_line_idx_edit = diff_splitted.clone()
+    let unchanged_line_idx_edit = diff_splitted
         .filter(|&line| !line.starts_with("-"))
         .enumerate()
         .filter(|(_, line)| !line.starts_with("+"))
         .map(|(idx, _)| idx + 1);
 
-    unchanged_line_idx_orig.zip(unchanged_line_idx_edit).collect()
+    (
+        unchanged_line_idx_orig.clone().zip(unchanged_line_idx_edit.clone()).collect(),
+        unchanged_line_idx_edit.zip(unchanged_line_idx_orig).collect()
+    )
 }
 
 /// display diff with color in terminal
@@ -106,6 +109,7 @@ fn main() {
         write_file_from_git(&mut orig_tmp_file, orig_ref, name);
         let orig_name = orig_tmp_file.path().to_str().unwrap();
         let orig_mypy_string = exec_mypy(orig_name, name).expect("failed to exec mypy");
+        let orig_mypy_lines = orig_mypy_string.split("\n");
 
         // get mypy result of edited file
         let mut edit_tmp_file: NamedTempFile;
@@ -118,6 +122,7 @@ fn main() {
             None => name
         };
         let edit_mypy_string = exec_mypy(edit_name, name).expect("failed to exec mypy");
+        let edit_mypy_lines = edit_mypy_string.split("\n");
 
         // map line indices that are invariant between the two files
         let diff_output = Command::new("git")
@@ -126,18 +131,38 @@ fn main() {
             None => vec!["--no-pager", "diff", "--no-ext", "-U1000000", orig_ref, "--", &name]
         })
         .output().expect("failed to exec git diff");
-        let index_map = calc_index_map(diff_output.stdout);
+        let (index_map_from_orig, index_map_from_edit) = calc_index_map(diff_output.stdout);
 
-        let line_idx_re = Regex::new(&format!(r"({}:)(\d+)(:)", &name)).unwrap();
-        let replaced_orig_mypy_string = line_idx_re.replace_all( &orig_mypy_string,
-            |caps: &Captures| {
+        let line_idx_re = Regex::new(&format!(r"^({}:)(\d+)(:)", &name)).unwrap();
+        let replaced_orig_mypy_string = orig_mypy_lines
+            .filter(|&line| line_idx_re.is_match(line))
+            .map(|line| line_idx_re.replace(line, |caps: &Captures| {
                 let num: usize = (&caps[2]).parse().unwrap();
-                format!("{}{}{}",&caps[1], index_map[&num], &caps[3])
-            }
-        );
+                let edit_num_str = match index_map_from_orig.get(&num){
+                    Some(num) => num.to_string(),
+                    None => String::from("_")
+                };
+                format!("{}{}:{}{}",&caps[1], num, edit_num_str, &caps[3])
+            }))
+            .collect::<Vec<String>>()
+            .join("\n");
+
+            
+        let replaced_edit_mypy_string = edit_mypy_lines
+            .filter(|&line| line_idx_re.is_match(line))
+            .map(|line| line_idx_re.replace(line, |caps: &Captures| {
+                let num: usize = (&caps[2]).parse().unwrap();
+                let orig_num_str = match index_map_from_edit.get(&num){
+                    Some(num) => num.to_string(),
+                    None => String::from("_")
+                };
+                format!("{}{}:{}{}",&caps[1], orig_num_str, num, &caps[3])
+            }))
+            .collect::<Vec<String>>()
+            .join("\n");
 
         // dispay two mypy result
-        print_diff(&replaced_orig_mypy_string, &edit_mypy_string).expect("failed to write term");
+        print_diff(&replaced_orig_mypy_string, &replaced_edit_mypy_string).expect("failed to write term");
     }
 
 }
