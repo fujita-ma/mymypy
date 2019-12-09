@@ -127,8 +127,8 @@ fn main() {
         // map line indices that are invariant between the two files
         let diff_output = Command::new("git")
         .args(match edit_ref{
-            Some(ref_name) => vec!["--no-pager", "diff", "--no-ext", "-U1000000", orig_ref, ref_name, "--", &name],
-            None => vec!["--no-pager", "diff", "--no-ext", "-U1000000", orig_ref, "--", &name]
+            Some(ref_name) => vec!["--no-pager", "diff", "--no-ext-diff", "-U1000000", orig_ref, ref_name, "--", &name],
+            None => vec!["--no-pager", "diff", "--no-ext-diff", "-U1000000", orig_ref, "--", &name]
         })
         .output().expect("failed to exec git diff");
         let (index_map_from_orig, index_map_from_edit) = calc_index_map(diff_output.stdout);
