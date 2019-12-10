@@ -69,11 +69,15 @@ fn print_diff(orig: &str, edit: &str) -> io::Result<()>{
             }
             Difference::Add(ref x) => {
                 t.fg(term::color::GREEN)?;
-                writeln!(t, "+{}", x)?;
+                for line in x.split("\n"){
+                    writeln!(t, "+{}", line)?;
+                }
             }
             Difference::Rem(ref x) => {
                 t.fg(term::color::RED)?;
-                writeln!(t, "-{}", x)?;
+                for line in x.split("\n"){
+                    writeln!(t, "-{}", line)?;
+                }
             }
         }
     }
